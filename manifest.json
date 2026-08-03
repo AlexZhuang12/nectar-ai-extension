@@ -1,0 +1,64 @@
+{
+  "manifest_version": 3,
+  "name": "Nectar AI - Smart Chat Extractor",
+  "version": "1.9.0",
+  "description": "Turn AI chats into pure knowledge — extract and export ChatGPT, Claude & Gemini conversations to Notion.",
+
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "cookies"
+  ],
+
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "https://api.notion.com/*",
+    "https://api.lemonsqueezy.com/*",
+    "https://nectar-ai-web.vercel.app/*",
+    "https://*.supabase.co/*",
+    "http://localhost:3000/*"
+  ],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Nectar AI - Smart Chat Extractor",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://nectar-ai-web.vercel.app/*",
+        "http://localhost:3000/*"
+      ],
+      "js": ["web-bridge.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

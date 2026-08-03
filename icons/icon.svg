@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="16" y1="8" x2="112" y2="120" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FBBF24"/>
+      <stop offset="0.5" stop-color="#F59E0B"/>
+      <stop offset="1" stop-color="#EA580C"/>
+    </linearGradient>
+    <linearGradient id="pot" x1="44" y1="52" x2="84" y2="96" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FDE68A"/>
+      <stop offset="1" stop-color="#D97706"/>
+    </linearGradient>
+    <linearGradient id="honey" x1="52" y1="44" x2="76" y2="68" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FEF3C7"/>
+      <stop offset="1" stop-color="#FBBF24"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#92400E" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+  <!-- Background circle -->
+  <rect width="128" height="128" rx="28" fill="url(#bg)"/>
+  <!-- Honeycomb pattern -->
+  <g opacity="0.18" fill="#FFF">
+    <path d="M24 36l6-3.5 6 3.5v7l-6 3.5-6-3.5v-7z"/>
+    <path d="M36 36l6-3.5 6 3.5v7l-6 3.5-6-3.5v-7z"/>
+    <path d="M48 36l6-3.5 6 3.5v7l-6 3.5-6-3.5v-7z"/>
+    <path d="M30 48.5l6-3.5 6 3.5v7l-6 3.5-6-3.5v-7z"/>
+    <path d="M42 48.5l6-3.5 6 3.5v7l-6 3.5-6-3.5v-7z"/>
+    <path d="M88 76l5-2.9 5 2.9v5.8l-5 2.9-5-2.9V76z"/>
+    <path d="M98 86l5-2.9 5 2.9v5.8l-5 2.9-5-2.9V86z"/>
+  </g>
+  <!-- Pot body -->
+  <g filter="url(#shadow)">
+    <path d="M40 58c0-4 4-8 24-8s24 4 24 8v28c0 6-8 12-24 12S40 92 40 86V58z" fill="url(#pot)"/>
+    <ellipse cx="64" cy="58" rx="24" ry="8" fill="#B45309"/>
+    <ellipse cx="64" cy="56" rx="20" ry="6" fill="url(#honey)"/>
+    <!-- Honey drip -->
+    <path d="M58 62c0 0 2 8 6 8s6-8 6-8" stroke="#FBBF24" stroke-width="3" stroke-linecap="round"/>
+    <!-- Pot handles -->
+    <path d="M38 64c-6 0-10 4-10 8" stroke="#B45309" stroke-width="3" stroke-linecap="round" fill="none"/>
+    <path d="M90 64c6 0 10 4 10 8" stroke="#B45309" stroke-width="3" stroke-linecap="round" fill="none"/>
+  </g>
+  <!-- Sparkle -->
+  <circle cx="92" cy="36" r="3" fill="#FFF" opacity="0.9"/>
+  <circle cx="36" cy="88" r="2" fill="#FFF" opacity="0.6"/>
+</svg>

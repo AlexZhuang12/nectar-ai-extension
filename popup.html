@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nectar AI</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+
+  <div class="card">
+    <header class="header">
+      <img class="header-logo" src="icons/icon48.png" alt="Nectar AI logo" width="40" height="40" />
+      <div class="header-text">
+        <div class="header-title-row">
+          <div class="logo">Nectar AI</div>
+          <span id="header-pro-badge" class="header-pro-badge hidden">PRO</span>
+        </div>
+        <p class="tagline">Turn AI Chats into Pure Knowledge</p>
+      </div>
+    </header>
+
+    <main class="card-body">
+      <div id="auth-banner" class="auth-banner hidden">
+        <p class="auth-banner-title">Sign in to sync your Nectar AI account</p>
+        <p class="auth-banner-text">Log in to unlock Pro features and keep your subscription in sync.</p>
+        <button id="btn-login" class="btn btn-auth" type="button">Log in to Nectar AI</button>
+      </div>
+
+      <div id="account-strip" class="account-strip hidden">
+        <div class="account-strip-text">
+          <span id="account-email" class="account-email"></span>
+          <span id="account-tier" class="account-tier">Free plan</span>
+        </div>
+        <button id="btn-sync-account" class="btn btn-sync" type="button">Sync</button>
+      </div>
+
+      <div id="pro-status" class="pro-status hidden" aria-live="polite">
+        <span class="pro-status-icon">🍯</span>
+        <span class="pro-status-label">PRO — Unlimited extractions</span>
+      </div>
+
+      <div id="upgrade-callout" class="upgrade-callout hidden">
+        <p class="upgrade-callout-text">Upgrade for unlimited extractions and premium templates.</p>
+        <button id="btn-upgrade-dashboard" class="btn btn-pro" type="button">Upgrade to Pro</button>
+      </div>
+
+      <div id="pro-banner" class="pro-banner hidden">
+        <p class="pro-banner-title">You've used all 15 free extractions this month</p>
+        <p class="pro-banner-text">Upgrade to Nectar AI Pro for unlimited exports to Notion.</p>
+        <button id="btn-upgrade-pro" class="btn btn-pro" type="button">Upgrade to Pro</button>
+      </div>
+
+      <div id="usage-meter" class="usage-meter hidden">
+        <div class="usage-meter-header">
+          <span class="usage-meter-label">Free extractions</span>
+          <span id="usage-count" class="usage-meter-count">15 / 15 Left</span>
+        </div>
+        <div class="usage-meter-track">
+          <div id="usage-bar" class="usage-meter-bar" style="width: 100%"></div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="export-target">Export To</label>
+        <select id="export-target" name="export-target">
+          <option value="notion" selected>Notion</option>
+          <option value="clipboard">Clipboard</option>
+        </select>
+      </div>
+
+      <details id="notion-settings" class="notion-settings" open>
+        <summary>Notion Settings</summary>
+
+        <div class="field">
+          <label for="notion-api-key">Integration Secret</label>
+          <input id="notion-api-key" type="password" placeholder="secret_xxxxxxxxxxxx" autocomplete="off" />
+          <p class="field-hint">From notion.so/my-integrations</p>
+        </div>
+
+        <div class="field">
+          <label for="notion-page-id">Target Page / Database ID</label>
+          <input id="notion-page-id" type="text" placeholder="abc123… or full UUID" autocomplete="off" />
+          <p class="field-hint">Page ID to append blocks, or Database ID to create new items</p>
+        </div>
+
+        <button id="btn-save-notion" class="btn btn-save" type="button">Save Notion Settings</button>
+      </details>
+
+      <div class="field">
+        <label for="extraction-scope">Extraction Scope</label>
+        <select id="extraction-scope" name="extraction-scope">
+          <option value="latest" selected>Latest Reply Only</option>
+          <option value="full">Full Conversation</option>
+        </select>
+        <p class="field-hint">Full Conversation exports all User &amp; AI messages as a transcript</p>
+        <p class="field-hint">Tip: Highlight any text on the page — a floating Nectar 🍯 button will appear</p>
+      </div>
+
+      <div class="field">
+        <label for="template-mode">Template Mode</label>
+        <select id="template-mode" name="template-mode">
+          <option value="social-post">Social Post</option>
+          <option value="campaign-strategy">Campaign Strategy</option>
+          <option value="bullet-summary" selected>Bullet Summary</option>
+        </select>
+      </div>
+
+      <button id="btn-extract" class="btn btn-extract" type="button">Extract Nectar ⚡</button>
+
+      <div class="status-wrap">
+        <div id="status-badge" class="status-badge status-ready" aria-live="polite">
+          <span class="status-dot"></span>
+          <span class="status-label">Ready</span>
+        </div>
+      </div>
+
+      <button id="btn-open-vault" class="btn btn-vault" type="button" disabled>
+        Open Notion Vault ↗
+      </button>
+    </main>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
+
