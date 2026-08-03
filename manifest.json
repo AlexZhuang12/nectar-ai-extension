@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Nectar AI - Smart Chat Extractor",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "description": "Turn AI chats into pure knowledge — extract and export ChatGPT, Claude & Gemini conversations to Notion.",
 
   "permissions": [

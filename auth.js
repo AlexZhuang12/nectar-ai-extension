@@ -5,6 +5,7 @@
 
 const AUTH_STORAGE_KEYS = {
   supabaseSession: "supabaseSession",
+  authToken: "authToken",
   subscriptionTier: "subscriptionTier",
   authUserEmail: "authUserEmail",
   authUserId: "authUserId",
@@ -77,6 +78,9 @@ async function saveSupabaseSession(session) {
         email: session.user.email ?? null,
       },
     },
+    [AUTH_STORAGE_KEYS.authToken]: session.access_token,
+    [AUTH_STORAGE_KEYS.authUserId]: session.user.id,
+    [AUTH_STORAGE_KEYS.authUserEmail]: session.user.email ?? "",
   });
 }
 
@@ -173,6 +177,7 @@ async function clearAuthState() {
 
   await chrome.storage.local.set({
     [AUTH_STORAGE_KEYS.supabaseSession]: null,
+    [AUTH_STORAGE_KEYS.authToken]: "",
     [AUTH_STORAGE_KEYS.subscriptionTier]: "free",
     [AUTH_STORAGE_KEYS.authUserEmail]: "",
     [AUTH_STORAGE_KEYS.authUserId]: "",
@@ -184,7 +189,7 @@ async function clearAuthState() {
   }
 }
 
-async function applyExternalSupabaseSession(rawSession) {
+async function applyAuthSyncPayload({ rawSession, profile } = {}) {
   let session = null;
 
   if (typeof rawSession === "string") {
@@ -200,11 +205,20 @@ async function applyExternalSupabaseSession(rawSession) {
   }
 
   await saveSupabaseSession(session);
-  const subscriptionTier = await fetchSubscriptionTierForUser(session);
-  return cacheSubscriptionState({ session, subscriptionTier });
+
+  let subscriptionTier = profile?.subscription_tier ?? null;
+  if (!subscriptionTier) {
+    subscriptionTier = await fetchSubscriptionTierForUser(session);
+  }
+
+  return cacheSubscriptionState({ session, subscriptionTier, profile });
 }
 
-async function cacheSubscriptionState({ session, subscriptionTier }) {
+async function applyExternalSupabaseSession(rawSession, profile) {
+  return applyAuthSyncPayload({ rawSession, profile });
+}
+
+async function cacheSubscriptionState({ session, subscriptionTier, profile }) {
   const stored = await chrome.storage.local.get([
     STORAGE_KEYS.isPro,
     STORAGE_KEYS.licenseKey,
@@ -213,10 +227,16 @@ async function cacheSubscriptionState({ session, subscriptionTier }) {
     subscriptionTier === "pro" ||
     Boolean(stored[STORAGE_KEYS.isPro] && stored[STORAGE_KEYS.licenseKey]);
 
+  const email =
+    profile?.email ??
+    session?.user?.email ??
+    "";
+
   await chrome.storage.local.set({
     [AUTH_STORAGE_KEYS.subscriptionTier]: subscriptionTier,
-    [AUTH_STORAGE_KEYS.authUserEmail]: session?.user?.email ?? "",
+    [AUTH_STORAGE_KEYS.authUserEmail]: email,
     [AUTH_STORAGE_KEYS.authUserId]: session?.user?.id ?? "",
+    [AUTH_STORAGE_KEYS.authToken]: session?.access_token ?? "",
     [AUTH_STORAGE_KEYS.proStatusCachedAt]: Date.now(),
     [STORAGE_KEYS.isPro]: isPro,
   });
@@ -225,7 +245,7 @@ async function cacheSubscriptionState({ session, subscriptionTier }) {
     isAuthenticated: Boolean(session?.user?.id),
     isPro,
     subscriptionTier,
-    email: session?.user?.email ?? "",
+    email,
     userId: session?.user?.id ?? "",
   };
 }

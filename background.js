@@ -1,5 +1,5 @@
 /**
- * Nectar AI – Background Service Worker  (v1.9.0)
+ * Nectar AI – Background Service Worker  (v1.9.1)
  * Supports Notion Page block appends AND Database item creation.
  * Auto-detects target type and attaches source/metadata tags.
  * Freemium usage limits + Supabase subscription validation.
@@ -135,6 +135,58 @@ async function recordExtraction() {
     count,
     remaining: Math.max(0, FREE_EXTRACTION_LIMIT - count),
     limitReached: count >= FREE_EXTRACTION_LIMIT,
+  };
+}
+
+async function forceSyncFromWebTabs() {
+  const urlPatterns = [
+    "https://nectar-ai-web.vercel.app/*",
+    "http://localhost:3000/*",
+  ];
+
+  const tabs = await chrome.tabs.query({ url: urlPatterns });
+
+  for (const tab of tabs) {
+    if (!tab.id) continue;
+    try {
+      const bridgeResult = await chrome.tabs.sendMessage(tab.id, {
+        action: "REQUEST_AUTH_SYNC",
+      });
+      if (bridgeResult?.success) {
+        const usage = await getNormalizedUsageState();
+        return { success: true, source: "web-tab", bridgeResult, usage };
+      }
+    } catch {
+      /* tab may not have content script yet */
+    }
+  }
+
+  for (const tab of tabs) {
+    if (!tab.id) continue;
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ["web-bridge.js"],
+      });
+      const bridgeResult = await chrome.tabs.sendMessage(tab.id, {
+        action: "REQUEST_AUTH_SYNC",
+      });
+      if (bridgeResult?.success) {
+        const usage = await getNormalizedUsageState();
+        return { success: true, source: "web-tab-injected", bridgeResult, usage };
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const auth = await refreshSubscriptionStatus({ allowCookieSync: true });
+  const usage = await getNormalizedUsageState();
+  return {
+    success: Boolean(auth.isAuthenticated),
+    source: "cookies",
+    auth,
+    usage,
   };
 }
 
@@ -586,12 +638,25 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.action === "SYNC_SUPABASE_SESSION") {
-    applyExternalSupabaseSession(message.rawSession)
+    applyAuthSyncPayload({
+      rawSession: message.rawSession,
+      profile: message.profile ?? null,
+    })
       .then(async (auth) => {
         const usage = await getNormalizedUsageState();
         sendResponse({ success: true, auth, usage });
       })
       .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "FORCE_SYNC_FROM_TAB") {
+    forceSyncFromWebTabs()
+      .then((result) => sendResponse(result))
+      .catch(async (err) => {
+        const usage = await getNormalizedUsageState();
+        sendResponse({ success: false, error: err.message, usage });
+      });
     return true;
   }
 

@@ -3,12 +3,13 @@
  * Persists settings, orchestrates extract/export, drives status badge UI.
  */
 
-const CONTENT_SCRIPT_VERSION = "1.9.0";
+const CONTENT_SCRIPT_VERSION = "1.9.1";
 
 const SUPPORTED_HOSTS = ["chatgpt.com", "claude.ai", "gemini.google.com"];
 
 const WEB_APP_LOGIN_URL = "https://nectar-ai-web.vercel.app/auth?redirect=/dashboard";
 const WEB_APP_DASHBOARD_URL = "https://nectar-ai-web.vercel.app/dashboard";
+const WEB_APP_ORIGIN = "https://nectar-ai-web.vercel.app";
 
 const STORAGE_KEYS = {
   notionApiKey: "notionApiKey",
@@ -17,6 +18,19 @@ const STORAGE_KEYS = {
   exportTarget: "exportTarget",
   extractionScope: "extractionScope",
 };
+
+const AUTH_STORAGE_KEYS = {
+  supabaseSession: "supabaseSession",
+  authToken: "authToken",
+  subscriptionTier: "subscriptionTier",
+  authUserEmail: "authUserEmail",
+  authUserId: "authUserId",
+  isPro: "isPro",
+  extractionCount: "extractionCount",
+  extractionMonth: "extractionMonth",
+};
+
+const FREE_EXTRACTION_LIMIT = 15;
 
 document.addEventListener("DOMContentLoaded", () => {
   const extractBtn          = document.getElementById("btn-extract");
@@ -53,6 +67,37 @@ document.addEventListener("DOMContentLoaded", () => {
     statusLabel.textContent = message;
   }
 
+  function currentMonthKey() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  }
+
+  /** Load auth + usage instantly from chrome.storage.local (no network). */
+  async function loadAuthFromStorage() {
+    const stored = await chrome.storage.local.get(Object.values(AUTH_STORAGE_KEYS));
+
+    const month = currentMonthKey();
+    let count = stored[AUTH_STORAGE_KEYS.extractionCount] ?? 0;
+    if (stored[AUTH_STORAGE_KEYS.extractionMonth] !== month) count = 0;
+
+    const subscriptionTier = stored[AUTH_STORAGE_KEYS.subscriptionTier] ?? "free";
+    const session = stored[AUTH_STORAGE_KEYS.supabaseSession];
+    const isAuthenticated = Boolean(session?.user?.id || stored[AUTH_STORAGE_KEYS.authUserId]);
+    const isPro = subscriptionTier === "pro" || Boolean(stored[AUTH_STORAGE_KEYS.isPro]);
+
+    return {
+      isPro,
+      isAuthenticated,
+      subscriptionTier,
+      email: stored[AUTH_STORAGE_KEYS.authUserEmail] ?? session?.user?.email ?? "",
+      userId: stored[AUTH_STORAGE_KEYS.authUserId] ?? session?.user?.id ?? "",
+      count,
+      limit: FREE_EXTRACTION_LIMIT,
+      remaining: isPro ? null : Math.max(0, FREE_EXTRACTION_LIMIT - count),
+      limitReached: !isPro && count >= FREE_EXTRACTION_LIMIT,
+    };
+  }
+
   async function fetchUsageStatus() {
     const result = await chrome.runtime.sendMessage({ action: "GET_USAGE_STATUS" });
     if (!result?.success) throw new Error(result?.error ?? "Could not load usage status.");
@@ -71,7 +116,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function renderUsageUI(usage) {
     usageState = usage;
-    const isPro = Boolean(usage.isPro);
+    const isPro = usage.subscriptionTier === "pro" || Boolean(usage.isPro);
     const isAuthenticated = Boolean(usage.isAuthenticated);
     const isFreePlan = !isPro;
 
@@ -97,7 +142,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const count = usage.count ?? 0;
-    const limit = usage.limit ?? 15;
+    const limit = usage.limit ?? FREE_EXTRACTION_LIMIT;
     const remaining = usage.remaining ?? Math.max(0, limit - count);
     const pct = Math.min(100, Math.round((remaining / limit) * 100));
 
@@ -215,16 +260,47 @@ document.addEventListener("DOMContentLoaded", () => {
     chrome.tabs.create({ url: WEB_APP_DASHBOARD_URL });
   }
 
-  async function handleSyncAccount() {
+  async function handleForceSync() {
     syncAccountBtn.disabled = true;
-    setStatus("Syncing account...", "exporting");
+    setStatus("Force syncing...", "exporting");
+
     try {
-      const result = await refreshSubscription();
-      if (!result?.success && !result?.usage?.isAuthenticated) {
-        throw new Error(result?.error ?? "No active session found. Log in on nectar-ai-web.vercel.app first.");
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const onWebApp = activeTab?.url?.startsWith(WEB_APP_ORIGIN);
+
+      if (onWebApp && activeTab?.id) {
+        try {
+          await chrome.tabs.sendMessage(activeTab.id, { action: "REQUEST_AUTH_SYNC" });
+          await new Promise((resolve) => setTimeout(resolve, 600));
+        } catch {
+          await chrome.scripting.executeScript({
+            target: { tabId: activeTab.id },
+            files: ["web-bridge.js"],
+          });
+          await chrome.tabs.sendMessage(activeTab.id, { action: "REQUEST_AUTH_SYNC" });
+          await new Promise((resolve) => setTimeout(resolve, 600));
+        }
       }
-      if (result?.usage?.isPro) setStatus("PRO — Unlimited extractions", "pro");
-      else setStatus("Account synced", "success");
+
+      const result = await chrome.runtime.sendMessage({ action: "FORCE_SYNC_FROM_TAB" });
+
+      if (result?.usage) {
+        usageState = result.usage;
+        renderUsageUI(result.usage);
+      }
+
+      if (!result?.success && !result?.usage?.isAuthenticated) {
+        throw new Error(
+          result?.error ??
+            "No session found. Open nectar-ai-web.vercel.app, log in, then Force Sync again."
+        );
+      }
+
+      if (result?.usage?.isPro || result?.usage?.subscriptionTier === "pro") {
+        setStatus("PRO — Unlimited extractions", "pro");
+      } else {
+        setStatus("Account synced", "success");
+      }
     } catch (err) {
       setStatus(err.message, "error");
     } finally {
@@ -346,7 +422,7 @@ document.addEventListener("DOMContentLoaded", () => {
   openVaultBtn.addEventListener("click", openNotionVault);
   extractBtn.addEventListener("click", handleExtract);
   loginBtn.addEventListener("click", openLoginPage);
-  syncAccountBtn.addEventListener("click", handleSyncAccount);
+  syncAccountBtn.addEventListener("click", handleForceSync);
   upgradeDashboardBtn.addEventListener("click", openDashboard);
   upgradeProBtn.addEventListener("click", openDashboard);
 
@@ -355,16 +431,21 @@ document.addEventListener("DOMContentLoaded", () => {
     if (
       changes.subscriptionTier ||
       changes.supabaseSession ||
+      changes.authToken ||
+      changes.authUserId ||
       changes.isPro ||
       changes.extractionCount
     ) {
-      refreshUsageUI();
+      loadAuthFromStorage().then(renderUsageUI).catch(console.error);
     }
   });
 
   loadSettings().then(async () => {
     toggleNotionSettings();
-    await refreshUsageUI();
+
+    const cached = await loadAuthFromStorage();
+    renderUsageUI(cached);
+
     refreshUsageUI({ refreshRemote: true });
   });
 });
