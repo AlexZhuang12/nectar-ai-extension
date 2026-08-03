@@ -24,7 +24,10 @@
       <div id="auth-banner" class="auth-banner hidden">
         <p class="auth-banner-title">Sign in to sync your Nectar AI account</p>
         <p class="auth-banner-text">Log in to unlock Pro features and keep your subscription in sync.</p>
-        <button id="btn-login" class="btn btn-auth" type="button">Log in to Nectar AI</button>
+        <div class="auth-banner-actions">
+          <button id="btn-login" class="btn btn-auth" type="button">Log in to Nectar AI</button>
+          <button id="btn-sync-account-banner" class="btn btn-sync-banner" type="button">Sync Account</button>
+        </div>
       </div>
 
       <div id="account-strip" class="account-strip hidden">
@@ -32,7 +35,7 @@
           <span id="account-email" class="account-email"></span>
           <span id="account-tier" class="account-tier">Free plan</span>
         </div>
-        <button id="btn-sync-account" class="btn btn-sync" type="button">Force Sync</button>
+        <button id="btn-sync-account" class="btn btn-sync" type="button">Sync Account</button>
       </div>
 
       <div id="pro-status" class="pro-status hidden" aria-live="polite">

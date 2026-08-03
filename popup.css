@@ -355,6 +355,29 @@ body {
   line-height: 1.4;
 }
 
+.auth-banner-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.btn-sync-banner {
+  color: var(--accent-dark);
+  background: transparent;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  font-size: 0.82rem;
+  padding: 10px 14px;
+}
+
+.btn-sync-banner:hover {
+  background: rgba(245, 158, 11, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  .btn-sync-banner { color: #fbbf24; }
+}
+
 .upgrade-callout-text { margin-bottom: 12px; }
 
 .btn-auth {

@@ -19,9 +19,15 @@ function supabaseAuthCookiePrefix() {
 function parseSupabaseSessionPayload(raw) {
   if (!raw) return null;
 
-  let value = raw;
+  let value = String(raw).trim();
+  if (!value) return null;
+
   if (value.startsWith("base64-")) {
-    value = atob(value.slice(7));
+    try {
+      value = atob(value.slice(7));
+    } catch {
+      return null;
+    }
   } else {
     try {
       value = decodeURIComponent(value);
@@ -30,11 +36,79 @@ function parseSupabaseSessionPayload(raw) {
     }
   }
 
-  const parsed = JSON.parse(value);
-  if (parsed?.access_token && parsed?.user?.id) return parsed;
-  if (parsed?.currentSession?.access_token) return parsed.currentSession;
-  if (parsed?.session?.access_token) return parsed.session;
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed?.access_token && parsed?.user?.id) return parsed;
+    if (parsed?.currentSession?.access_token) return parsed.currentSession;
+    if (parsed?.session?.access_token) return parsed.session;
+  } catch {
+    return null;
+  }
+
   return null;
+}
+
+/** Runs inside the web page (MAIN world) via chrome.scripting.executeScript. */
+function nectarExtractSupabaseSession(cookiePrefix) {
+  function parseSession(raw) {
+    if (!raw) return null;
+    var value = String(raw).trim();
+    try {
+      if (value.indexOf("base64-") === 0) value = atob(value.slice(7));
+      else value = decodeURIComponent(value);
+      var parsed = JSON.parse(value);
+      if (parsed && parsed.access_token && parsed.user && parsed.user.id) return parsed;
+      if (parsed && parsed.currentSession && parsed.currentSession.access_token) return parsed.currentSession;
+      if (parsed && parsed.session && parsed.session.access_token) return parsed.session;
+    } catch (e) {}
+    return null;
+  }
+
+  function readCookieSession() {
+    try {
+      var parts = document.cookie.split(";").map(function (c) { return c.trim(); });
+      var authParts = [];
+      for (var i = 0; i < parts.length; i++) {
+        var eq = parts[i].indexOf("=");
+        if (eq === -1) continue;
+        var name = parts[i].slice(0, eq);
+        var value = parts[i].slice(eq + 1);
+        if (name === cookiePrefix || name.indexOf(cookiePrefix + ".") === 0) {
+          authParts.push({ name: name, value: value });
+        }
+      }
+      authParts.sort(function (a, b) {
+        return a.name.localeCompare(b.name, undefined, { numeric: true });
+      });
+      if (!authParts.length) return null;
+      return authParts.map(function (p) { return p.value; }).join("");
+    } catch (e) {}
+    return null;
+  }
+
+  function readLocalStorageSession() {
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var key = localStorage.key(i);
+        if (key && key.indexOf("-auth-token") !== -1) {
+          var raw = localStorage.getItem(key);
+          if (raw) return raw;
+        }
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  var cookieRaw = readCookieSession();
+  var storageRaw = readLocalStorageSession();
+  var raw = cookieRaw || storageRaw;
+  var session = parseSession(raw);
+
+  return {
+    rawSession: raw,
+    session: session,
+    source: session ? (cookieRaw ? "cookie" : "localStorage") : "none",
+  };
 }
 
 async function readSupabaseSessionFromWebCookies() {
@@ -54,7 +128,46 @@ async function readSupabaseSessionFromWebCookies() {
 
     const combined = authCookies.map((cookie) => cookie.value).join("");
     const session = parseSupabaseSessionPayload(combined);
-    if (session) return session;
+    if (session) return { session, source: "chrome.cookies", rawSession: combined };
+  }
+
+  return null;
+}
+
+async function readSessionFromTabMainWorld(tabId) {
+  if (!tabId) return null;
+
+  try {
+    const [injection] = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: "MAIN",
+      func: nectarExtractSupabaseSession,
+      args: [supabaseAuthCookiePrefix()],
+    });
+    return injection?.result ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function readSessionFromWebTabs(preferTabId) {
+  if (preferTabId) {
+    const preferred = await readSessionFromTabMainWorld(preferTabId);
+    if (preferred?.session || preferred?.rawSession) {
+      return preferred;
+    }
+  }
+
+  const tabs = await chrome.tabs.query({
+    url: ["https://nectar-ai-web.vercel.app/*", "http://localhost:3000/*"],
+  });
+
+  for (const tab of tabs) {
+    if (!tab.id || tab.id === preferTabId) continue;
+    const extracted = await readSessionFromTabMainWorld(tab.id);
+    if (extracted?.session || extracted?.rawSession) {
+      return extracted;
+    }
   }
 
   return null;
@@ -127,9 +240,9 @@ async function resolveActiveSupabaseSession({ allowCookieSync = true } = {}) {
   let session = await getStoredSupabaseSession();
 
   if ((!session || isSessionExpired(session)) && allowCookieSync) {
-    const cookieSession = await readSupabaseSessionFromWebCookies();
-    if (cookieSession) {
-      await saveSupabaseSession(cookieSession);
+    const cookieResult = await readSupabaseSessionFromWebCookies();
+    if (cookieResult?.session) {
+      await saveSupabaseSession(cookieResult.session);
       session = await getStoredSupabaseSession();
     }
   }
@@ -206,11 +319,7 @@ async function applyAuthSyncPayload({ rawSession, profile } = {}) {
 
   await saveSupabaseSession(session);
 
-  let subscriptionTier = profile?.subscription_tier ?? null;
-  if (!subscriptionTier) {
-    subscriptionTier = await fetchSubscriptionTierForUser(session);
-  }
-
+  const subscriptionTier = await fetchSubscriptionTierForUser(session);
   return cacheSubscriptionState({ session, subscriptionTier, profile });
 }
 
@@ -303,4 +412,63 @@ async function refreshSubscriptionStatus({ allowCookieSync = true } = {}) {
 
   const subscriptionTier = await fetchSubscriptionTierForUser(session);
   return cacheSubscriptionState({ session, subscriptionTier });
+}
+
+/**
+ * Fail-proof direct auth: cookies → active tab MAIN world → all web tabs → storage.
+ * Always queries Supabase profiles.subscription_tier fresh.
+ */
+async function directAuthSync({ preferTabId } = {}) {
+  let session = null;
+  let source = "none";
+
+  const cookieResult = await readSupabaseSessionFromWebCookies();
+  if (cookieResult?.session) {
+    session = cookieResult.session;
+    source = cookieResult.source;
+  }
+
+  if (!session) {
+    const tabResult = await readSessionFromWebTabs(preferTabId);
+    if (tabResult?.session) {
+      session = tabResult.session;
+      source = `tab:${tabResult.source}`;
+    } else if (tabResult?.rawSession) {
+      session = parseSupabaseSessionPayload(tabResult.rawSession);
+      source = `tab:${tabResult.source}`;
+    }
+  }
+
+  if (!session) {
+    session = await resolveActiveSupabaseSession({ allowCookieSync: false });
+    if (session) source = "storage";
+  }
+
+  if (!session) {
+    return {
+      success: false,
+      error: "No Supabase session found. Log in at nectar-ai-web.vercel.app first.",
+      source: "none",
+    };
+  }
+
+  if (isSessionExpired(session)) {
+    try {
+      session = await refreshSupabaseSession(session);
+      source = `${source}+refreshed`;
+    } catch (err) {
+      return { success: false, error: err.message, source };
+    }
+  }
+
+  await saveSupabaseSession(session);
+  const subscriptionTier = await fetchSubscriptionTierForUser(session);
+  const auth = await cacheSubscriptionState({ session, subscriptionTier });
+
+  return {
+    success: true,
+    source,
+    auth,
+    subscriptionTier,
+  };
 }

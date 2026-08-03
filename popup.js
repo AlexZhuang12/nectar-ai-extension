@@ -3,7 +3,7 @@
  * Persists settings, orchestrates extract/export, drives status badge UI.
  */
 
-const CONTENT_SCRIPT_VERSION = "1.9.1";
+const CONTENT_SCRIPT_VERSION = "1.9.2";
 
 const SUPPORTED_HOSTS = ["chatgpt.com", "claude.ai", "gemini.google.com"];
 
@@ -55,9 +55,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const usageMeter          = document.getElementById("usage-meter");
   const usageCount          = document.getElementById("usage-count");
   const usageBar            = document.getElementById("usage-bar");
-  const loginBtn            = document.getElementById("btn-login");
-  const syncAccountBtn      = document.getElementById("btn-sync-account");
-  const upgradeDashboardBtn = document.getElementById("btn-upgrade-dashboard");
+  const loginBtn                = document.getElementById("btn-login");
+  const syncAccountBtn            = document.getElementById("btn-sync-account");
+  const syncAccountBannerBtn      = document.getElementById("btn-sync-account-banner");
+  const upgradeDashboardBtn       = document.getElementById("btn-upgrade-dashboard");
   const upgradeProBtn       = document.getElementById("btn-upgrade-pro");
 
   let usageState = null;
@@ -83,7 +84,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const subscriptionTier = stored[AUTH_STORAGE_KEYS.subscriptionTier] ?? "free";
     const session = stored[AUTH_STORAGE_KEYS.supabaseSession];
     const isAuthenticated = Boolean(session?.user?.id || stored[AUTH_STORAGE_KEYS.authUserId]);
-    const isPro = subscriptionTier === "pro" || Boolean(stored[AUTH_STORAGE_KEYS.isPro]);
+    const isPro = subscriptionTier === "pro";
 
     return {
       isPro,
@@ -116,23 +117,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function renderUsageUI(usage) {
     usageState = usage;
-    const isPro = usage.subscriptionTier === "pro" || Boolean(usage.isPro);
+    const isPro = usage.subscriptionTier === "pro";
     const isAuthenticated = Boolean(usage.isAuthenticated);
     const isFreePlan = !isPro;
 
     headerProBadge.classList.toggle("hidden", !isPro);
     proStatus.classList.toggle("hidden", !isPro);
-    authBanner.classList.toggle("hidden", isAuthenticated);
+    authBanner.classList.toggle("hidden", isPro || isAuthenticated);
     accountStrip.classList.toggle("hidden", !isAuthenticated);
+    upgradeCallout.classList.toggle("hidden", !isAuthenticated || isPro);
+    proBanner.classList.add("hidden");
 
     if (isAuthenticated) {
       accountEmail.textContent = usage.email || "Signed in";
       accountTier.textContent = isPro ? "Pro plan" : "Free plan";
       accountTier.classList.toggle("account-tier-pro", isPro);
     }
-
-    upgradeCallout.classList.toggle("hidden", !isAuthenticated || isPro);
-    proBanner.classList.add("hidden");
 
     if (isPro) {
       usageMeter.classList.add("hidden");
@@ -260,43 +260,33 @@ document.addEventListener("DOMContentLoaded", () => {
     chrome.tabs.create({ url: WEB_APP_DASHBOARD_URL });
   }
 
-  async function handleForceSync() {
+  async function handleSyncAccount() {
     syncAccountBtn.disabled = true;
-    setStatus("Force syncing...", "exporting");
+    if (syncAccountBannerBtn) syncAccountBannerBtn.disabled = true;
+    setStatus("Syncing account...", "exporting");
 
     try {
       const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      const onWebApp = activeTab?.url?.startsWith(WEB_APP_ORIGIN);
+      const preferTabId = activeTab?.url?.includes("nectar-ai-web.vercel.app") ? activeTab.id : null;
 
-      if (onWebApp && activeTab?.id) {
-        try {
-          await chrome.tabs.sendMessage(activeTab.id, { action: "REQUEST_AUTH_SYNC" });
-          await new Promise((resolve) => setTimeout(resolve, 600));
-        } catch {
-          await chrome.scripting.executeScript({
-            target: { tabId: activeTab.id },
-            files: ["web-bridge.js"],
-          });
-          await chrome.tabs.sendMessage(activeTab.id, { action: "REQUEST_AUTH_SYNC" });
-          await new Promise((resolve) => setTimeout(resolve, 600));
-        }
-      }
-
-      const result = await chrome.runtime.sendMessage({ action: "FORCE_SYNC_FROM_TAB" });
+      const result = await chrome.runtime.sendMessage({
+        action: "SYNC_ACCOUNT",
+        preferTabId,
+      });
 
       if (result?.usage) {
         usageState = result.usage;
         renderUsageUI(result.usage);
       }
 
-      if (!result?.success && !result?.usage?.isAuthenticated) {
+      if (!result?.success) {
         throw new Error(
           result?.error ??
-            "No session found. Open nectar-ai-web.vercel.app, log in, then Force Sync again."
+            "No session found. Open nectar-ai-web.vercel.app, log in, then Sync Account."
         );
       }
 
-      if (result?.usage?.isPro || result?.usage?.subscriptionTier === "pro") {
+      if (result.usage?.subscriptionTier === "pro") {
         setStatus("PRO — Unlimited extractions", "pro");
       } else {
         setStatus("Account synced", "success");
@@ -305,8 +295,9 @@ document.addEventListener("DOMContentLoaded", () => {
       setStatus(err.message, "error");
     } finally {
       syncAccountBtn.disabled = false;
+      if (syncAccountBannerBtn) syncAccountBannerBtn.disabled = false;
       setTimeout(() => {
-        if (usageState?.isPro) setStatus("PRO — Unlimited extractions", "pro");
+        if (usageState?.subscriptionTier === "pro") setStatus("PRO — Unlimited extractions", "pro");
         else if (!usageState?.limitReached) setStatus("Ready", "ready");
       }, 2500);
     }
@@ -422,7 +413,8 @@ document.addEventListener("DOMContentLoaded", () => {
   openVaultBtn.addEventListener("click", openNotionVault);
   extractBtn.addEventListener("click", handleExtract);
   loginBtn.addEventListener("click", openLoginPage);
-  syncAccountBtn.addEventListener("click", handleForceSync);
+  syncAccountBtn.addEventListener("click", handleSyncAccount);
+  if (syncAccountBannerBtn) syncAccountBannerBtn.addEventListener("click", handleSyncAccount);
   upgradeDashboardBtn.addEventListener("click", openDashboard);
   upgradeProBtn.addEventListener("click", openDashboard);
 

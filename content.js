@@ -4,7 +4,7 @@
  * Injects Nectar buttons, extracts responses, exports with source metadata.
  */
 
-const NECTAR_VERSION = "1.9.1";
+const NECTAR_VERSION = "1.9.2";
 
 const STORAGE_KEYS = {
   templateMode: "templateMode",

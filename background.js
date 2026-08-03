@@ -1,5 +1,5 @@
 /**
- * Nectar AI – Background Service Worker  (v1.9.1)
+ * Nectar AI – Background Service Worker  (v1.9.2)
  * Supports Notion Page block appends AND Database item creation.
  * Auto-detects target type and attaches source/metadata tags.
  * Freemium usage limits + Supabase subscription validation.
@@ -138,14 +138,41 @@ async function recordExtraction() {
   };
 }
 
-async function forceSyncFromWebTabs() {
+async function forceSyncFromWebTabs(preferTabId) {
   const urlPatterns = [
     "https://nectar-ai-web.vercel.app/*",
     "http://localhost:3000/*",
   ];
 
-  const tabs = await chrome.tabs.query({ url: urlPatterns });
+  if (preferTabId) {
+    try {
+      const bridgeResult = await chrome.tabs.sendMessage(preferTabId, {
+        action: "REQUEST_AUTH_SYNC",
+      });
+      if (bridgeResult?.success) {
+        const usage = await getNormalizedUsageState();
+        return { success: true, source: "web-bridge-active-tab", bridgeResult, usage };
+      }
+    } catch {
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: preferTabId },
+          files: ["web-bridge.js"],
+        });
+        const bridgeResult = await chrome.tabs.sendMessage(preferTabId, {
+          action: "REQUEST_AUTH_SYNC",
+        });
+        if (bridgeResult?.success) {
+          const usage = await getNormalizedUsageState();
+          return { success: true, source: "web-bridge-injected-active", bridgeResult, usage };
+        }
+      } catch {
+        /* fall through to direct auth */
+      }
+    }
+  }
 
+  const tabs = await chrome.tabs.query({ url: urlPatterns });
   for (const tab of tabs) {
     if (!tab.id) continue;
     try {
@@ -157,35 +184,21 @@ async function forceSyncFromWebTabs() {
         return { success: true, source: "web-tab", bridgeResult, usage };
       }
     } catch {
-      /* tab may not have content script yet */
+      /* continue */
     }
   }
 
-  for (const tab of tabs) {
-    if (!tab.id) continue;
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ["web-bridge.js"],
-      });
-      const bridgeResult = await chrome.tabs.sendMessage(tab.id, {
-        action: "REQUEST_AUTH_SYNC",
-      });
-      if (bridgeResult?.success) {
-        const usage = await getNormalizedUsageState();
-        return { success: true, source: "web-tab-injected", bridgeResult, usage };
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-
-  const auth = await refreshSubscriptionStatus({ allowCookieSync: true });
+  const direct = await directAuthSync({ preferTabId });
   const usage = await getNormalizedUsageState();
+
+  if (direct.success) {
+    return { success: true, source: direct.source, auth: direct.auth, usage };
+  }
+
   return {
-    success: Boolean(auth.isAuthenticated),
-    source: "cookies",
-    auth,
+    success: false,
+    error: direct.error ?? "Could not sync account.",
+    source: direct.source ?? "none",
     usage,
   };
 }
@@ -625,10 +638,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.action === "REFRESH_SUBSCRIPTION") {
-    refreshSubscriptionStatus({ allowCookieSync: true })
-      .then(async (auth) => {
+    directAuthSync({ preferTabId: message.preferTabId ?? null })
+      .then(async (result) => {
         const usage = await getNormalizedUsageState();
-        sendResponse({ success: true, auth, usage });
+        sendResponse({ ...result, success: result.success, auth: result.auth, usage });
       })
       .catch(async (err) => {
         const usage = await getNormalizedUsageState();
@@ -650,8 +663,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
-  if (message.action === "FORCE_SYNC_FROM_TAB") {
-    forceSyncFromWebTabs()
+  if (message.action === "FORCE_SYNC_FROM_TAB" || message.action === "SYNC_ACCOUNT") {
+    forceSyncFromWebTabs(message.preferTabId ?? null)
       .then((result) => sendResponse(result))
       .catch(async (err) => {
         const usage = await getNormalizedUsageState();
@@ -681,5 +694,5 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
-refreshSubscriptionStatus({ allowCookieSync: true }).catch(() => {});
+directAuthSync({}).catch(() => {});
 validateStoredLicense().catch(() => {});
